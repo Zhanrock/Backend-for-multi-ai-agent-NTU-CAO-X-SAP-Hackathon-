@@ -14,9 +14,9 @@ COLLECTION_NAME = "fan_manual"
 # ------------------------------
 
 def load_manual(path):
-    """อ่าน PDF ทั้งหมดด้วย pdfplumber"""
+    """Read all PDF with pdfplumber"""
     if not os.path.exists(path):
-        raise FileNotFoundError(f"ไม่เจอไฟล์: {path}")
+        raise FileNotFoundError(f"File not found: {path}")
 
     text = ""
     with pdfplumber.open(path) as pdf:
@@ -28,8 +28,8 @@ def load_manual(path):
 
 def split_sections(text):
     """
-    split ตาม heading ทั้งหลัก (1., 2.) และย่อย (1.1, 5.4, ...)
-    ใช้ regex กันไม่ให้แตก .1, .2 ออกมาเป็น section เดี่ยว
+    split according to heading both head (1., 2.) and section (1.1, 5.4, ...)
+    use regex to prevent .1, .2 to output single section
     """
     parts = re.split(r"\n(?=\d+(?:\.\d+)*\s+)", text)
     sections = [p.strip() for p in parts if p.strip()]
@@ -37,17 +37,16 @@ def split_sections(text):
 
 def ingest_to_chroma(sections):
     """
-    สร้าง/เชื่อมต่อ Chroma DB แล้ว persist sections ลงไป
+    Create/Connect Chroma DB then add persist sections
     """
     client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
 
-    # ใช้ OpenAI embedding
+    # Use OpenAI embedding
     embedding_func = embedding_functions.OpenAIEmbeddingFunction(
         api_key=os.getenv("OPENAI_API_KEY"),
         model_name="text-embedding-3-small"
     )
 
-    # ลบ collection เก่าแล้วสร้างใหม่ (กันข้อมูลซ้ำ)
     if COLLECTION_NAME in [c.name for c in client.list_collections()]:
         client.delete_collection(COLLECTION_NAME)
     collection = client.create_collection(
@@ -57,7 +56,6 @@ def ingest_to_chroma(sections):
 
     # add batch
     for i, sec in enumerate(sections):
-        # ดึงบรรทัดแรกมาเป็น title (ตัดเลข heading ออก)
         first_line = sec.split("\n", 1)[0]
         title = re.sub(r"^\d+(?:\.\d+)*\s+", "", first_line).strip()
 
@@ -68,7 +66,7 @@ def ingest_to_chroma(sections):
         )
 
         # debug print
-        print(f"📄 Ingested section {i}: {title}")
+        print(f"Ingested section {i}: {title}")
 
     return len(sections)
 
@@ -76,4 +74,4 @@ if __name__ == "__main__":
     text = load_manual(PDF_PATH)
     sections = split_sections(text)
     n = ingest_to_chroma(sections)
-    print(f"✅ Persisted {n} sections into Chroma at {CHROMA_DB_DIR}")
+    print(f"Persisted {n} sections into Chroma at {CHROMA_DB_DIR}")

@@ -3,10 +3,10 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel
-from scheduler import solve_schedule, swap_shift
-from arai_rag import answer_question
-from jai_agent import get_growth_path, get_weekly_nudge, get_skill_tree
-from kai_agent import submit_idea, upvote_idea, view_challenge, post_kudos, manager_summary
+from agents.oai import solve_schedule, swap_shift
+from agents.arai import answer_question
+from agents.jai import get_growth_path, get_weekly_nudge, get_skill_tree
+from agents.kai import submit_idea, upvote_idea, view_challenge, post_kudos, manager_summary
 
 
 app = FastAPI()

@@ -148,7 +148,7 @@ Answer format: {style_instr}
         )
         out = response.choices[0].message.content.strip()
     except Exception as e:
-        out = f"⚠️ OpenAI API call failed: {e}"
+        out = f"OpenAI API call failed: {e}"
 
     if style == "bullet":
         out = re.sub(r"(Step \d+:)", r"\n• \1", out)
