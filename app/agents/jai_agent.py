@@ -1,20 +1,12 @@
-# /SAP_FAN/jai_agent.py
+# app/agents/jai_agent.py
 import pandas as pd
 import json
+from app.utils.helpers import load_json, load_csv
 
 # ---------------- CONFIG ----------------
-PERFORMANCE_FILE = "mock_performance.csv"
-CAREER_PATH_FILE = "career_path.json"
-NUDGE_FILE = "nudge_library.json"
-
-
-# ---------------- HELPERS -------test---------
-def load_json(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def load_csv(path):
-    return pd.read_csv(path, quotechar='"', skip_blank_lines=True)
+PERFORMANCE_FILE = "data/mock/mock_performance.csv"
+CAREER_PATH_FILE = "data/mock/career_path.json"
+NUDGE_FILE = "data/mock/nudge_library.json"
 
 
 # ---------------- FEATURES ----------------
@@ -58,7 +50,6 @@ def get_weekly_nudge(employee_id):
     skills = str(row.get("skills_unlocked", "") or "").strip()
     unlocked = skills.split(";") if skills else []
 
-
     if current_role not in career_data:
         return f"❌ No career path info for {current_role}"
 
@@ -97,30 +88,3 @@ def get_skill_tree(employee_id):
         return f"❌ No skills unlocked yet."
     else:
         return f"👤 Skill Acquired: {skills}"
-
-
-# ---------------- MENU ----------------
-def run_jai():
-    print("📘 Welcome to JAI - The Personal Growth Agent")
-    print("Choose a command:")
-    print("1. View Growth Path")
-    print("2. Get Weekly Nudge")
-    print("3. View Skill Tree")
-
-    choice = input("Enter number: ").strip()
-
-    if choice == "1":
-        emp_id = int(input("Enter Employee ID: "))
-        print(get_growth_path(emp_id))
-    elif choice == "2":
-        emp_id = int(input("Enter Employee ID: "))
-        print(get_weekly_nudge(emp_id))
-    elif choice == "3":
-        emp_id = int(input("Enter Employee ID: "))
-        print(get_skill_tree(emp_id))
-    else:
-        print("❌ Invalid choice.")
-
-
-if __name__ == "__main__":
-    run_jai()

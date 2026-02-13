@@ -1,24 +1,13 @@
-# /SAP_FAN/kai_agent.py
+# app/agents/kai_agent.py
 import pandas as pd
 import json
 from datetime import datetime
+from app.utils.helpers import load_json, load_csv, save_csv
 
 # ---------------- CONFIG ----------------
-IDEAS_FILE = "ideas.csv"
-CHALLENGES_FILE = "challenges.json"
-KUDOS_FILE = "kudos.csv"
-
-
-# ---------------- HELPERS ----------------
-def load_json(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def load_csv(path):
-    return pd.read_csv(path)
-
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+IDEAS_FILE = "data/mock/ideas.csv"
+CHALLENGES_FILE = "data/mock/challenges.json"
+KUDOS_FILE = "data/mock/kudos.csv"
 
 
 # ---------------- FEATURES ----------------
@@ -26,7 +15,7 @@ def submit_idea(idea_text, employee, branch):
     try:
         df = load_csv(IDEAS_FILE)
     except FileNotFoundError:
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        df = pd.DataFrame(columns=["idea_id", "idea_text", "submitted_by", "branch_id", "upvotes", "timestamp"])
 
     new_row = pd.DataFrame([{
         "idea_id": len(df) + 1,
@@ -40,7 +29,6 @@ def submit_idea(idea_text, employee, branch):
     df = pd.concat([df, new_row], ignore_index=True)
     save_csv(df, IDEAS_FILE)
     return f"💡 Idea submitted: '{idea_text}' by {employee} (branch {branch})"
-
 
 
 def upvote_idea(idea_id):
@@ -62,11 +50,13 @@ Goal: {ch['goal']}
 Prize: {ch['prize']}
 """
 
-kudos_log = []  # เก็บ kudos ไว้ชั่วคราว
 
 def post_kudos(from_emp, to_emp, message):
-    path = "kudos.csv"
-    df = load_csv(path)
+    try:
+        df = load_csv(KUDOS_FILE)
+    except FileNotFoundError:
+        df = pd.DataFrame(columns=["kudos_id", "from_employee", "to_employee", "message", "timestamp"])
+    
     new_row = {
         "kudos_id": len(df) + 1,
         "from_employee": from_emp,
@@ -74,13 +64,10 @@ def post_kudos(from_emp, to_emp, message):
         "message": message,
         "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-    # Instead of df.append(new_row, ignore_index=True)
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_csv(df, path)
+    save_csv(df, KUDOS_FILE)
     return f"✅ Kudos posted from {from_emp} to {to_emp}!"
 
-def view_kudos():
-    return kudos_log
 
 def manager_summary():
     ideas = load_csv(IDEAS_FILE).sort_values(by="upvotes", ascending=False).head(5)

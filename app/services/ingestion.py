@@ -1,4 +1,4 @@
-# data_ingest.py
+# app/services/ingestion.py
 import os
 import re
 import pdfplumber
@@ -6,8 +6,8 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 # ----------- CONFIG -----------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PDF_PATH = os.path.join(BASE_DIR, "FAN_Manual.pdf")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PDF_PATH = os.path.join(BASE_DIR, "docs", "FAN_Manual.pdf")
 CHROMA_DB_DIR = os.path.join(BASE_DIR, "chroma_db")
 COLLECTION_NAME = "fan_manual"
 

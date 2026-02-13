@@ -1,29 +1,28 @@
-#api.py
+# app/main.py
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
-from pydantic import BaseModel
-from agents.oai import solve_schedule, swap_shift
-from agents.arai import answer_question
-from agents.jai import get_growth_path, get_weekly_nudge, get_skill_tree
-from agents.kai import submit_idea, upvote_idea, view_challenge, post_kudos, manager_summary
 
+# Import from agents
+from app.agents.arai_agent import answer_question
+from app.agents.oai_agent import solve_schedule, swap_shift
+from app.agents.jai_agent import get_growth_path, get_weekly_nudge, get_skill_tree
+from app.agents.kai_agent import submit_idea, upvote_idea, view_challenge, post_kudos, manager_summary
+
+# Import schemas
+from app.schemas.api_models import QueryRequest, IdeaRequest, KudosRequest
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # หรือเฉพาะ ["http://localhost:3000"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------- Arai ----------
-class QueryRequest(BaseModel):
-    question: str
-    style: str = "bullet"
-
 @app.post("/ask_arai")
 def ask_arai(req: QueryRequest):
     try:
@@ -34,13 +33,11 @@ def ask_arai(req: QueryRequest):
 
 
 # ---------- Oai ----------
-# Preview CSV
 @app.post("/preview")
 async def preview_csv(file: UploadFile = File(...)):
     df = pd.read_csv(file.file)
     return {"preview": df.to_dict(orient="records")}
 
-# Generate Schedule
 @app.post("/generate_schedule")
 def generate(data: dict):
     df = pd.DataFrame(data["availability"])
@@ -53,7 +50,7 @@ def swap_shift_api(data: dict):
     emp1 = data["emp1"]
     emp2 = data["emp2"]
     shift = data["shift"]
-    availability = pd.DataFrame(data["availability"])  # 👈 เอา preview มาด้วย
+    availability = pd.DataFrame(data["availability"])
 
     success, new_schedule = swap_shift(schedule, emp1, emp2, shift, availability)
 
@@ -61,14 +58,13 @@ def swap_shift_api(data: dict):
         return {"success": True, "schedule": new_schedule.to_dict()}
     return {"success": False, "message": "Swap not allowed (availability or schedule mismatch)"}
 
-# Reset Schedule
 @app.post("/reset_schedule")
 def reset(data: dict):
     original = pd.DataFrame(data["original"])
     return {"schedule": original.to_dict()}
 
 
-# ---------- ๋Jai ----------
+# ---------- Jai ----------
 @app.get("/jai/growth/{emp_id}")
 def jai_growth(emp_id: int):
     return {"result": get_growth_path(emp_id)}
@@ -81,14 +77,8 @@ def jai_nudge(emp_id: int):
 def jai_skills(emp_id: int):
     return {"result": get_skill_tree(emp_id)}
 
+
 # ---------- Kai ----------
-from pydantic import BaseModel
-
-class IdeaRequest(BaseModel):
-    idea_text: str
-    employee: str
-    branch: str
-
 @app.post("/kai/idea")
 def kai_submit(req: IdeaRequest):
     return {"result": submit_idea(req.idea_text, req.employee, req.branch)}
@@ -101,11 +91,6 @@ def kai_upvote_api(idea_id: int):
 def kai_challenge():
     return {"result": view_challenge()}
 
-class KudosRequest(BaseModel):
-    from_emp: str
-    to_emp: str
-    message: str
-
 @app.post("/kai/kudos")
 def kai_kudos(req: KudosRequest):
     return {"result": post_kudos(req.from_emp, req.to_emp, req.message)}
@@ -117,19 +102,20 @@ def kai_summary():
 @app.get("/kai/ideas")
 def kai_ideas():
     try:
-        df = pd.read_csv("ideas.csv")
+        df = pd.read_csv("data/mock/ideas.csv")
         return {"ideas": df.to_dict(orient="records")}
     except FileNotFoundError:
         return {"ideas": []}
 
-KUDOS_FILE = "kudos.csv"
-
 @app.get("/kai/kudos_list")
 def kai_kudos_list():
     try:
-        df = pd.read_csv(KUDOS_FILE)
-        # แปลงเป็น dict list
+        df = pd.read_csv("data/mock/kudos.csv")
         records = df.to_dict(orient="records")
         return {"kudos": records}
     except Exception as e:
         return {"error": str(e), "kudos": []}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

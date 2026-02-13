@@ -1,4 +1,4 @@
-# arai_rag.py
+# app/agents/arai_agent.py
 import chromadb
 chromadb.config.telemetry = False
 import os
@@ -19,6 +19,9 @@ def safe_decode_seq_id(seq_id_bytes):
 
 sqlite_module._decode_seq_id = safe_decode_seq_id
 # -------------------------------------------
+
+# Import retrieval utilities
+from app.services.retrieval import retrieve
 
 # ---------------- CONFIG ----------------
 PERSIST_DIR = "./chroma_db"
@@ -42,21 +45,6 @@ collection = chroma_client.get_collection(
 )
 
 # ---------------- HELPERS ----------------
-def retrieve(query, top_k=TOP_K):
-    res = collection.query(
-        query_texts=[query],
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"]
-    )
-    docs = []
-    for idx in range(len(res["documents"][0])):
-        docs.append({
-            "text": res["documents"][0][idx],
-            "meta": res["metadatas"][0][idx],
-            "score": res["distances"][0][idx]
-        })
-    return docs
-
 def split_sentences(text):
     sents = re.split(r'(?<=[\.\!\?])\s+|(?=Step \d+:)', text.strip())
     return [s.strip() for s in sents if s.strip()]
@@ -84,7 +72,7 @@ def answer_question(query, style="bullet", top_k=TOP_K):
 
     # relax threshold → 1.5
     if not hits or hits[0]["score"] > 1.5:
-        return "Sorry, I cannot answer that because it’s not in the FAN manual.", []
+        return "Sorry, I cannot answer that because it's not in the FAN manual.", []
 
     # keyword guardrail for refund/return
     target_section = None

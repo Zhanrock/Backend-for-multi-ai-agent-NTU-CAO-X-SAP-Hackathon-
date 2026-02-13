@@ -1,4 +1,4 @@
-#schedule.py
+# app/agents/oai_agent.py
 import pandas as pd
 import random
 
@@ -40,9 +40,8 @@ def swap_shift(schedule, emp1, emp2, shift, availability):
     a1 = int(availability.loc[availability['Employee'] == emp1, shift].values[0])
     a2 = int(availability.loc[availability['Employee'] == emp2, shift].values[0])
 
-    # ✅ เงื่อนไข swap
+    # swap condition
     if v1 != v2 and a1 == 1 and a2 == 1:
         schedule.loc[emp1, shift], schedule.loc[emp2, shift] = v2, v1
         return True, schedule
     return False, schedule
-
