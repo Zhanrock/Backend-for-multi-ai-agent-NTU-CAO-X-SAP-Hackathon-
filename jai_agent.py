@@ -1,4 +1,4 @@
-# jai.py
+# /SAP_FAN/jai_agent.py
 import pandas as pd
 import json
 
@@ -8,7 +8,7 @@ CAREER_PATH_FILE = "career_path.json"
 NUDGE_FILE = "nudge_library.json"
 
 
-# ---------------- HELPERS ----------------
+# ---------------- HELPERS -------test---------
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)

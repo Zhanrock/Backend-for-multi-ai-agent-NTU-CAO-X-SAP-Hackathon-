@@ -1,4 +1,4 @@
-# kai.py
+# /SAP_FAN/kai_agent.py
 import pandas as pd
 import json
 from datetime import datetime
@@ -62,6 +62,7 @@ Goal: {ch['goal']}
 Prize: {ch['prize']}
 """
 
+kudos_log = []  # เก็บ kudos ไว้ชั่วคราว
 
 def post_kudos(from_emp, to_emp, message):
     path = "kudos.csv"
@@ -78,7 +79,8 @@ def post_kudos(from_emp, to_emp, message):
     save_csv(df, path)
     return f"✅ Kudos posted from {from_emp} to {to_emp}!"
 
-
+def view_kudos():
+    return kudos_log
 
 def manager_summary():
     ideas = load_csv(IDEAS_FILE).sort_values(by="upvotes", ascending=False).head(5)

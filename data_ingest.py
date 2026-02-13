@@ -1,92 +1,79 @@
+# data_ingest.py
+import os
 import re
-from pathlib import Path
-from PyPDF2 import PdfReader
-from sentence_transformers import SentenceTransformer
-from chromadb.config import Settings
+import pdfplumber
 import chromadb
+from chromadb.utils import embedding_functions
 
-PERSIST_DIR = "./chroma_db"
-EMB_MODEL_NAME = "all-MiniLM-L6-v2"
+# ----------- CONFIG -----------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PDF_PATH = os.path.join(BASE_DIR, "FAN_Manual.pdf")
+CHROMA_DB_DIR = os.path.join(BASE_DIR, "chroma_db")
+COLLECTION_NAME = "fan_manual"
 
+# ------------------------------
 
+def load_manual(path):
+    """อ่าน PDF ทั้งหมดด้วย pdfplumber"""
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"ไม่เจอไฟล์: {path}")
 
-def load_pdf(path):
-    """Load text from a PDF file."""
-    reader = PdfReader(path)
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
     return text
 
-def load_txt(path):
-    """Load text from a TXT file."""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-    
-def load_manual(path):
-    """Auto-detect file type and load content."""
-    if path.lower().endswith(".pdf"):
-        return load_pdf(path)
-    elif path.lower().endswith(".txt"):
-        return load_txt(path)
-    else:
-        raise ValueError(f"Unsupported file format: {path}")
-
-def split_by_sections(text):
+def split_sections(text):
     """
-    Split manual by numbered sections (e.g., 3.3.1 Latte, 2.4 Closing Checklist).
-    Each section becomes one doc.
+    split ตาม heading ทั้งหลัก (1., 2.) และย่อย (1.1, 5.4, ...)
+    ใช้ regex กันไม่ให้แตก .1, .2 ออกมาเป็น section เดี่ยว
     """
-    pattern = r"^(\d+(\.\d+)*)(\s+[A-Za-z].*)$"
-    sections = re.split(r"(?=^\d+(\.\d+)*\s+[A-Za-z].*$)", text, flags=re.MULTILINE)
-    grouped = []
-    for sec in sections:
-        sec = sec.strip()
-        if not sec:
-            continue
-        lines = sec.splitlines()
-        if lines:
-            matches = re.match(pattern, lines[0])
-            if matches:
-                section_num = matches.group(1)
-                title = matches.group(3).strip()
-                structured_line = f"{section_num} {title}"
-            else:
-                structured_line = lines[0]
-        else:
-            structured_line = "Untitled Section"
-        grouped.append({"title": structured_line, "content": sec})
-    return grouped
+    parts = re.split(r"\n(?=\d+(?:\.\d+)*\s+)", text)
+    sections = [p.strip() for p in parts if p.strip()]
+    return sections
 
+def ingest_to_chroma(sections):
+    """
+    สร้าง/เชื่อมต่อ Chroma DB แล้ว persist sections ลงไป
+    """
+    client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
 
-def build_vector_db(docs, collection_name, persist_dir=PERSIST_DIR):
-    client = chromadb.PersistentClient(path=persist_dir)    
-    # --- ADD THIS LINE ---
-    try:
-        client.delete_collection(name=collection_name)
-    except:
-        pass  # Collection might not exist yet, which is fine
-        
-    collection = client.get_or_create_collection(name=collection_name)
+    # ใช้ OpenAI embedding
+    embedding_func = embedding_functions.OpenAIEmbeddingFunction(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model_name="text-embedding-3-small"
+    )
 
-    texts = [d["content"] for d in docs]
-    ids = [f"{collection_name}_section_{i}" for i in range(len(texts))]
-    metadatas = [{"title": d["title"]} for d in docs]
+    # ลบ collection เก่าแล้วสร้างใหม่ (กันข้อมูลซ้ำ)
+    if COLLECTION_NAME in [c.name for c in client.list_collections()]:
+        client.delete_collection(COLLECTION_NAME)
+    collection = client.create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_func
+    )
 
-    collection.add(documents=texts, metadatas=metadatas, ids=ids)
-    print(f"✅ Persisted {len(texts)} sections into Chroma (collection='{collection_name}')")
+    # add batch
+    for i, sec in enumerate(sections):
+        # ดึงบรรทัดแรกมาเป็น title (ตัดเลข heading ออก)
+        first_line = sec.split("\n", 1)[0]
+        title = re.sub(r"^\d+(?:\.\d+)*\s+", "", first_line).strip()
+
+        collection.add(
+            documents=[sec],
+            metadatas=[{"title": title}],
+            ids=[f"sec-{i}"]
+        )
+
+        # debug print
+        print(f"📄 Ingested section {i}: {title}")
+
+    return len(sections)
 
 if __name__ == "__main__":
-    manuals = {
-        "arai": "manual_chat.pdf",
-        "jai": "career_manual.txt",
-        "kai": "knowledge_manual.txt"
-    }
-    for name, filepath in manuals.items():
-        if not Path(filepath).exists():
-            print(f"⚠️ Skipping {filepath} (file not found)")
-            continue
-        print(f"\n📖 Ingesting {filepath} into collection '{name}_collection'")
-        text = load_manual(filepath)
-        docs = split_by_sections(text)
-        build_vector_db(docs, collection_name=f"{name}_collection", persist_dir=PERSIST_DIR)
+    text = load_manual(PDF_PATH)
+    sections = split_sections(text)
+    n = ingest_to_chroma(sections)
+    print(f"✅ Persisted {n} sections into Chroma at {CHROMA_DB_DIR}")

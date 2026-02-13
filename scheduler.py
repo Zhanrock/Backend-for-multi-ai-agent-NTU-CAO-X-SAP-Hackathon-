@@ -1,4 +1,4 @@
-#scheduler.py
+#schedule.py
 import pandas as pd
 import random
 
@@ -26,16 +26,23 @@ def solve_schedule(avail_df):
 
     return schedule
 
-def swap_shift(schedule, emp1, emp2, shift):
-    """
-    Swap shifts between two employees only if both have the shift assigned (1).
-    Returns True if swap successful, False otherwise.
-    """
-    val1 = schedule.loc[emp1, shift]
-    val2 = schedule.loc[emp2, shift]
 
-    if val1 == 1 and val2 == 1:
-        schedule.loc[emp1, shift], schedule.loc[emp2, shift] = val2, val1
-        return True
-    else:
-        return False
+def swap_shift(schedule, emp1, emp2, shift, availability):
+    """
+    Swap logic:
+    - schedule: one is 1, the other is 0 (not 0,0)
+    - availability (preview): both must be 1 (จริงๆว่างทั้งคู่)
+    """
+    v1 = int(schedule.loc[emp1, shift])
+    v2 = int(schedule.loc[emp2, shift])
+
+    # ดึง availability ของ emp1, emp2
+    a1 = int(availability.loc[availability['Employee'] == emp1, shift].values[0])
+    a2 = int(availability.loc[availability['Employee'] == emp2, shift].values[0])
+
+    # ✅ เงื่อนไข swap
+    if v1 != v2 and a1 == 1 and a2 == 1:
+        schedule.loc[emp1, shift], schedule.loc[emp2, shift] = v2, v1
+        return True, schedule
+    return False, schedule
+

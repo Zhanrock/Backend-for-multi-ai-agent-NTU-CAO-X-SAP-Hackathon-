@@ -1,53 +1,48 @@
+# arai_rag.py
 import chromadb
 chromadb.config.telemetry = False
 import os
 from openai import OpenAI
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+import re
 
 import chromadb.segment.impl.metadata.sqlite as sqlite_module
+from chromadb.utils import embedding_functions
 
+# ----------- PATCH SQLITE DECODE -----------
 def safe_decode_seq_id(seq_id_bytes):
     if isinstance(seq_id_bytes, int):
         return seq_id_bytes
-    if len(seq_id_bytes) == 8:
-        return int.from_bytes(seq_id_bytes, "big")
-    elif len(seq_id_bytes) == 24:
-        return int.from_bytes(seq_id_bytes, "big")
-    else:
-        raise ValueError(f"Unexpected seq_id_bytes: {seq_id_bytes}")
+    if isinstance(seq_id_bytes, (bytes, bytearray)):
+        if len(seq_id_bytes) in (8, 24):
+            return int.from_bytes(seq_id_bytes, "big")
+    raise ValueError(f"Unexpected seq_id_bytes: {seq_id_bytes}")
 
 sqlite_module._decode_seq_id = safe_decode_seq_id
-
-import re
+# -------------------------------------------
 
 # ---------------- CONFIG ----------------
 PERSIST_DIR = "./chroma_db"
-EMB_MODEL_NAME = "all-MiniLM-L6-v2"
+COLLECTION_NAME = "fan_manual"
 TOP_K = 5
 # ----------------------------------------
-COLLECTION_MAP = {
-    "arai": "arai_collection",
-    "jai": "jai_collection",
-    "kai": "kai_collection"
-}
+
+# Init OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 # Init embeddings & DB
-# Init Chroma client + embedding function
+embedding_func = embedding_functions.OpenAIEmbeddingFunction(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    model_name="text-embedding-3-small"
+)
 
 chroma_client = chromadb.PersistentClient(path=PERSIST_DIR)
-
-
-def get_collection(name):
-    c = chromadb.PersistentClient(path=PERSIST_DIR)
-    return c.get_collection(name=name)
+collection = chroma_client.get_collection(
+    name=COLLECTION_NAME,
+    embedding_function=embedding_func
+)
 
 # ---------------- HELPERS ----------------
-def retrieve(query, agent, top_k=TOP_K):
-    collection_name = COLLECTION_MAP.get(agent)
-    if not collection_name:
-        raise ValueError(f"Unknown agent: {agent}")
-    collection = chroma_client.get_collection(name=collection_name)
-
+def retrieve(query, top_k=TOP_K):
     res = collection.query(
         query_texts=[query],
         n_results=top_k,
@@ -62,31 +57,22 @@ def retrieve(query, agent, top_k=TOP_K):
         })
     return docs
 
-
-
 def split_sentences(text):
-    # Split on punctuation or "Step n:"
     sents = re.split(r'(?<=[\.\!\?])\s+|(?=Step \d+:)', text.strip())
     return [s.strip() for s in sents if s.strip()]
 
-
-def extract_relevant_sentences(hits, query_keywords, max_sentences_per_hit=3):
-    extracted = []
-    for i, h in enumerate(hits):
-        sents = split_sentences(h["text"])
-        for s in sents:
-            extracted.append((i, s))
-            if sum(1 for x in extracted if x[0] == i) >= max_sentences_per_hit:
-                break
-    return extracted
-
-
 # ---------------- MAIN ANSWER ----------------
-def answer_question(query, agent, style="bullet", top_k=TOP_K):
-    hits = retrieve(query, agent=agent, top_k=top_k)
-    hits = sorted(hits, key=lambda h: h["score"])  # lower score = more relevant
+def answer_question(query, style="bullet", top_k=TOP_K):
+    hits = retrieve(query, top_k=top_k)
+    hits = sorted(hits, key=lambda h: h["score"])
 
-    # Deduplicate documents by text
+    # 🔎 Debug log
+    print("\n[DEBUG] Query:", query)
+    for h in hits:
+        title = (h.get("meta") or {}).get("title", "Unknown")
+        print(f" - {title} | score={h['score']:.3f}")
+
+    # dedup
     seen_texts = set()
     unique_hits = []
     for h in hits:
@@ -94,57 +80,51 @@ def answer_question(query, agent, style="bullet", top_k=TOP_K):
         if text not in seen_texts:
             unique_hits.append(h)
             seen_texts.add(text)
-
     hits = unique_hits
 
-    # If no hits or the top hit is not relevant, return custom message
-    if not hits or hits[0]["score"] > 1.0:  # adjust threshold as needed
-        return "Sorry, that question is unrelated to the manual and cannot be answered.", []
+    # relax threshold → 1.5
+    if not hits or hits[0]["score"] > 1.5:
+        return "Sorry, I cannot answer that because it’s not in the FAN manual.", []
 
-    # Find the most relevant section (e.g., "Latte")
+    # keyword guardrail for refund/return
     target_section = None
     for h in hits:
-        title = h["meta"].get("title", "").lower()
-        if "latte" in query.lower() and "latte" in title:
+        meta = h.get("meta") or {}
+        title = meta.get("title", "").lower()
+        if any(kw in query.lower() for kw in ["refund", "return"]) and "refund" in title:
             target_section = h
             break
     if not target_section:
-        target_section = hits[0] if hits else None
+        target_section = hits[0]
 
-    # Only extract sentences from the target section
     extracted = []
     if target_section:
         sents = split_sentences(target_section["text"])
-        # Remove section title if present
-        title = target_section["meta"].get("title", "").strip()
-        sents = [s for s in sents if s.strip() and s.strip() != title]
-        for s in sents:
-            extracted.append((0, s))
+        title = (target_section.get("meta") or {}).get("title", "").strip()
+        sents = [s for s in sents if s and s != title]
+        extracted.extend((0, s) for s in sents)
 
-    if not extracted:
-        extracted = [(0, split_sentences(hits[0]["text"])[0])] if hits else []
+    if not extracted and hits:
+        extracted = [(0, split_sentences(hits[0]["text"])[0])]
 
-    pieces = []
-    seen = set()
+    pieces, seen = [], set()
     for hit_idx, s in extracted:
         if s not in seen:
             pieces.append((hit_idx, s))
             seen.add(s)
 
-    title = target_section["meta"].get("title", "").strip() if target_section else ""
+    title = (target_section.get("meta") or {}).get("title", "").strip()
     if style == "bullet":
         style_instr = (
             "Write the answer as Markdown bullet points. "
-            "Each item should be on a new line and listed only once. "
-            "Do not repeat or truncate items. "
-            "Do not invent extra steps."
+            "Each item should be on a new line. Do not invent extra steps."
         )
-        context_text = "\n".join(f"• {s}" for _, s in pieces if s.strip() and s.strip() != title)
+        context_text = "\n".join(f"• {s}" for _, s in pieces if s and s != title)
     else:
-        style_instr = "Write the answer in 2-3 short paragraphs. Keep exact numbers and steps."
-        context_text = " ".join(s for _, s in pieces if s.strip() and s.strip() != title)
+        style_instr = "Write the answer in 2-3 short paragraphs. Keep exact steps."
+        context_text = " ".join(s for _, s in pieces if s and s != title)
 
-    prompt = f"""You are an accurate assistant {agent.upper()}, an assistant for employees.
+    prompt = f"""You are an accurate assistant for employees.
 ONLY use the excerpts below to answer the question.
 Do NOT invent extra steps.
 
@@ -158,17 +138,9 @@ Answer format: {style_instr}
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",   # or "gpt-4o" if you have quota
+            model="gpt-4o-mini",
             messages=[
-                {
-                "role": "system",
-                "content": (
-                    "You are an accurate assistant for employees. "
-                    "ONLY use the provided excerpts. "
-                    "Do not invent extra steps. "
-                    "Stop after completing the last relevant step."
-                )
-            },
+                {"role": "system", "content": "You are an accurate assistant for employees. ONLY use provided excerpts."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=400,
@@ -178,31 +150,22 @@ Answer format: {style_instr}
     except Exception as e:
         out = f"⚠️ OpenAI API call failed: {e}"
 
-
-    # Try to split steps if model outputs in a single line
     if style == "bullet":
-        # Split on any "Step n:" or "•"
         out = re.sub(r"(Step \d+:)", r"\n• \1", out)
         out = re.sub(r"(•)", r"\n•", out)
         lines = [line.strip() for line in out.split("\n") if line.strip()]
-        title = target_section["meta"].get("title", "").strip() if target_section else ""
         lines = [line for line in lines if title.lower() not in line.lower()]
-        # Stop at first line that looks like a new section header (starts with number and dot)
         section_header_pattern = re.compile(r"^\d+(\.\d+)*\s*[\.:]")
         filtered = []
         for x in lines:
             if section_header_pattern.match(x):
                 break
-            # Only keep lines that look like bullets or steps
             if x.startswith("•") or x.startswith("-") or re.match(r"Step \d+:", x):
                 filtered.append(x)
-        # Add bullet if missing
         for i, line in enumerate(filtered):
-            if not line.startswith("•") and not line.startswith("-"):
+            if not line.startswith(("•", "-")):
                 filtered[i] = "• " + line
-        # Improved deduplication: match by the start of the line (first 30 chars, lowercased)
-        seen = set()
-        deduped = []
+        seen, deduped = set(), []
         for x in filtered:
             norm = re.sub(r'\s+', ' ', x[:30].lower()).strip()
             if norm not in seen and len(x) > 10:
@@ -210,37 +173,28 @@ Answer format: {style_instr}
                 seen.add(norm)
         out = "\n".join(deduped)
     elif style == "sentence":
-        title = target_section["meta"].get("title", "").strip() if target_section else ""
         out_lines = [line for line in out.split("\n") if title.lower() not in line.lower()]
         out = " ".join(out_lines).strip()
 
-    # Collect source section titles
-    source_ids = []
-    title = target_section["meta"].get("title", "Unknown Section") if target_section else "Unknown Section"
-    preview = target_section["text"][:200] if target_section else ""
-    source_ids.append({"section": title, "preview": preview})
+    source_ids = [{
+        "section": (target_section.get("meta") or {}).get("title", "Unknown Section"),
+        "preview": target_section["text"][:200]
+    }]
 
-    # If the answer is empty, show the full source section text as the answer
     if not out.strip():
-        # Use the entire target section text, skipping the title if present
-        title = target_section["meta"].get("title", "").strip() if target_section else ""
-        section_text = target_section["text"] if target_section else ""
-        # Remove the title from the start if present
+        section_text = target_section["text"]
         if section_text.startswith(title):
             section_text = section_text[len(title):].strip()
         out = section_text.strip()
 
     return out.strip(), source_ids
 
-
 # ---------------- INTERACTIVE ----------------
 if __name__ == "__main__":
-    agent_choice = input("Choose agent (arai/jai/kai): ").strip().lower()
     q = input("Enter your question: ")
     style_choice = input("Answer style? (bullet/sentence): ").strip().lower()
-
-    ans, sources = answer_question(q, agent=agent_choice, style=style_choice)
-    print(f"\n[{agent_choice.upper()}] ANSWER:\n", ans)
+    ans, sources = answer_question(q, style=style_choice)
+    print("\nANSWER:\n", ans)
     print("\nSOURCES:")
     for s in sources:
         print(f"- {s['section']} → {s['preview'][:80]}...\n")
