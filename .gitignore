@@ -38,6 +38,7 @@ venv/
 
 # Databases
 *.db
+chroma_db/
 *.sqlite3
 
 # Jupyter
