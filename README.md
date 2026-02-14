@@ -13,6 +13,9 @@ This repository contains the backend architecture powering FAN.
 
 ---
 
+## Architecture Diagram
+![Architecture Diagram.png](docs/fan-architecture.png)
+
 ## System Overview
 
 FAN is built using a modular multi-agent architecture:
