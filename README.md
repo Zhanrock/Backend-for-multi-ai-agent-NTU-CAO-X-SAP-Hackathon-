@@ -97,28 +97,50 @@ Tech components:
 ## Project Structure
 ```
 fan-backend/
-│
 ├── app/
-│ ├── main.py
-│ ├── agents/
-│ │ ├── arai.py
-│ │ ├── jai.py
-│ │ ├── kai.py
-│ │ └── oai.py
-│ ├── services/
-│ │ ├── retrieval.py
-│ │ ├── ingestion.py
-│ │ └── embeddings.py
-│ └── utils/
+│   ├── __init__.py
+│   ├── main.py                           Main FastAPI app entry point
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── arai_agent.py                 (Q&A with RAG)
+│   │   ├── jai_agent.py                  (Career development)
+│   │   ├── kai_agent.py                  (Ideas & recognition)
+│   │   └── oai_agent.py                  (Schedule optimization)
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── retrieval.py                  (Chroma DB retrieval)
+│   │   ├── ingestion.py                  (PDF ingestion)
+│   │   └── embeddings.py                 (Embedding utilities)
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── api_models.py                 (Pydantic request models)
+│   └── utils/
+│       ├── __init__.py
+│       └── helpers.py                    (CSV/JSON utilities)
 │
 ├── data/
-├── docs/
-│ └── architecture.png
+│   └── mock/                             All data files
+│       ├── ideas.csv
+│       ├── kudos.csv
+│       ├── challenges.json
+│       ├── career_path.json
+│       ├── nudge_library.json
+│       ├── mock_performance.csv
+│       └── schedule.csv
 │
-├── requirements.txt
-├── Dockerfile
+├── tests/                                Test files
+│   ├── __init__.py
+│   ├── test_api.py
+│   └── test_retrieval.py
+│
+├── docs/                                 Documentation
+│
 ├── .env.example
-└── README.md
+├── requirements.txt
+├── Procfile
+├── README.md
+├── LICENSE
+└── .gitignore
 ```
 
 ## Installation
